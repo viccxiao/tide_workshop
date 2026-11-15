@@ -102,7 +102,6 @@ monitor = w.quality_monitors.create(
         problem_type=MonitorInferenceLogProblemType.PROBLEM_TYPE_CLASSIFICATION,
     ),
 )
-save_config(monitor_dashboard=monitor.dashboard_id)
 print("Monitor created. First run is starting.")
 
 # COMMAND ----------
@@ -158,7 +157,11 @@ display(drift.where(F.col("feature").isin(top)).orderBy("day", "feature"))
 
 # COMMAND ----------
 
-link("Open the monitor dashboard", f"/sql/dashboardsv3/{monitor.dashboard_id}")
+dashboard_id = w.quality_monitors.get(table_name=fq(PRED_LOG)).dashboard_id   # created after the first run
+if dashboard_id:
+    link("Open the monitor dashboard", f"/sql/dashboardsv3/{dashboard_id}")
+else:
+    print("Dashboard is still being created. Re-run this cell in a minute.")
 link(f"Open {PRED_LOG} → Quality tab", f"/explore/data/{CATALOG}/{SCHEMA}/{PRED_LOG}")
 
 # COMMAND ----------
