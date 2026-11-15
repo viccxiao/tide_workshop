@@ -29,9 +29,16 @@ def save_config(**updates):
     return cfg
 
 
+def _param(name):
+    try:
+        return dbutils.widgets.get(name).strip()
+    except Exception:
+        return ""
+
+
 CFG = load_config()
-CATALOG = CFG.get("catalog")
-SCHEMA = f"kyx_workshop_{USER}"
+CATALOG = _param("catalog") or CFG.get("catalog")      # jobs can pass catalog / schema as parameters
+SCHEMA = _param("schema") or f"kyx_workshop_{USER}"
 
 # Raw data (created by 00_setup)
 CUSTOMERS = "customers"

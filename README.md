@@ -1,6 +1,6 @@
 # MLOps on Databricks: hands-on workshop
 
-Build a KYC onboarding risk model end to end: **features, training and registry, deployment, and monitoring**.
+Build a KYC onboarding risk model end to end: **features, training and registry, deployment, monitoring, and automated approved deployments**.
 Everything runs on **synthetic data** in **your own schema**, so nothing touches existing pipelines.
 
 ## Get started
@@ -19,9 +19,17 @@ Everything runs on **synthetic data** in **your own schema**, so nothing touches
 | `03_deploy` (Part A) | A Model Serving endpoint (starts in the background) | 5 min |
 | `04_monitoring` | 30 days of predictions and a drift monitor with a dashboard | 15 min |
 | `03_deploy` (Part B) | Call the endpoint with just a customer ID | 10 min |
+| `05_deployment_job` | A job that tests every new model version, waits for approval, then deploys it | 20 min |
 | `99_cleanup` | Remove everything you created | 2 min |
 
-**Order:** 00 → 01 → 02 → 03 Part A → 04 → 03 Part B
+**Order:** 00 → 01 → 02 → 03 Part A → 04 → 03 Part B → 05
+
+Run `05` section by section (not Run all), because you approve the model halfway through.
+
+## Folders
+
+- `pipeline/`: the three tasks of the deployment job (Evaluation, Approval_Check, Deployment) and the model checks they use
+- `cicd/`: the code side of CI/CD. The project as a bundle (`databricks.yml`), an example GitHub Actions pipeline and unit tests. See `cicd/README.md`.
 
 ## What you need
 

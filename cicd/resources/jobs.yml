@@ -1,0 +1,76 @@
+# Jobs for the bundle in databricks.yml. Notebook paths are relative to this file.
+
+resources:
+  jobs:
+    # Build features and train candidate models. Scheduled weekly (paused in dev).
+    training:
+      name: kyx-training
+      schedule:
+        quartz_cron_expression: "0 0 6 ? * MON"
+        timezone_id: Europe/London
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+        - name: schema
+          default: ${var.schema}
+      environments:
+        - environment_key: ml
+          spec:
+            client: "3"
+            dependencies:
+              - databricks-feature-engineering
+              - mlflow==3.16.0
+      tasks:
+        - task_key: features
+          environment_key: ml
+          notebook_task:
+            notebook_path: ../../01_feature_engineering.py
+        - task_key: train
+          depends_on:
+            - task_key: features
+          environment_key: ml
+          notebook_task:
+            notebook_path: ../../02_train_and_register.py
+
+    # Model deployment job: runs when a new model version is registered.
+    # Link it to the model once with:
+    #   MlflowClient().update_registered_model(name, deployment_job_id=<job id>)
+    deployment:
+      name: kyx-deployment-job
+      max_concurrent_runs: 1
+      queue:
+        enabled: true
+      parameters:
+        - name: model_name
+          default: ${var.catalog}.${var.schema}.kyx_risk_model
+        - name: model_version
+          default: ""
+        - name: catalog
+          default: ${var.catalog}
+        - name: schema
+          default: ${var.schema}
+      environments:
+        - environment_key: ml
+          spec:
+            client: "3"
+            dependencies:
+              - databricks-feature-engineering
+              - mlflow==3.16.0
+      tasks:
+        - task_key: Evaluation
+          environment_key: ml
+          notebook_task:
+            notebook_path: ../../pipeline/evaluate.py
+        - task_key: Approval_Check
+          depends_on:
+            - task_key: Evaluation
+          environment_key: ml
+          max_retries: 0
+          notebook_task:
+            notebook_path: ../../pipeline/approval_check.py
+        - task_key: Deployment
+          depends_on:
+            - task_key: Approval_Check
+          environment_key: ml
+          notebook_task:
+            notebook_path: ../../pipeline/deploy.py

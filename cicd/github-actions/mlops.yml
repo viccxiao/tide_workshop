@@ -1,0 +1,64 @@
+# Example GitHub Actions pipeline for the bundle in databricks.yml.
+# To use it, copy this file to .github/workflows/mlops.yml in your own repo and add the secrets below.
+#
+#   Pull request      -> unit tests + bundle validate
+#   Merge to main     -> deploy to staging + run training (new model version -> deployment job)
+#   Published release -> deploy to prod
+#
+# Secrets (one service principal per environment is recommended):
+#   DATABRICKS_HOST, DATABRICKS_CLIENT_ID, DATABRICKS_CLIENT_SECRET, STAGING_CATALOG, PROD_CATALOG
+# Tip: Databricks also supports GitHub OIDC (workload identity federation), which avoids storing a secret.
+
+name: mlops
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+
+env:
+  DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+  DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+  DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest pandas numpy
+      - run: pytest cicd/tests -v
+
+  validate:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: databricks/setup-cli@main
+      - run: databricks bundle validate -t staging --var catalog=${{ secrets.STAGING_CATALOG }}
+
+  deploy-staging:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: databricks/setup-cli@main
+      - run: databricks bundle deploy -t staging --var catalog=${{ secrets.STAGING_CATALOG }}
+      # Training registers a new model version, which starts the deployment job in Databricks
+      - run: databricks bundle run training -t staging --var catalog=${{ secrets.STAGING_CATALOG }}
+
+  deploy-prod:
+    if: github.event_name == 'release'
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: production   # add required reviewers on this GitHub environment
+    steps:
+      - uses: actions/checkout@v4
+      - uses: databricks/setup-cli@main
+      - run: databricks bundle deploy -t prod --var catalog=${{ secrets.PROD_CATALOG }}

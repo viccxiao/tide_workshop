@@ -38,6 +38,8 @@ mlflow.set_registry_uri("databricks-uc")
 mlflow.set_experiment(EXPERIMENT)
 fe = FeatureEngineeringClient()
 
+from pyspark.sql import functions as F
+
 labels = (spark.table(LABELS).join(spark.table(CUSTOMERS).where("cohort = 'train'"), "customer_id")
           .select("customer_id", "is_high_risk"))
 
@@ -45,7 +47,7 @@ training_set = fe.create_training_set(
     df=labels,
     feature_lookups=[FeatureLookup(table_name=fq(FEATURE_TABLE), lookup_key="customer_id")],
     label="is_high_risk",
-    exclude_columns=["customer_id"],
+    exclude_columns=[],   # keep customer_id so we can pick the fixed holdout. It's removed before training.
 )
 train_pdf = training_set.load_df().toPandas()
 print(f"{len(train_pdf):,} training rows, high-risk rate {train_pdf.is_high_risk.mean():.1%}")
@@ -70,7 +72,6 @@ from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score, roc_auc_score
-from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
@@ -88,11 +89,14 @@ class RiskScorer(BaseEstimator):
         return self.pipe.predict_proba(X)[:, 1]
 
 
+# Fixed holdout: every 4th customer (by ID hash) is kept for testing, so every model is compared on the same customers
+import zlib
+holdout = train_pdf.pop("customer_id").map(lambda c: zlib.crc32(c.encode()) % 4 == 0)
 y = train_pdf.pop("is_high_risk").astype(int)
 X = train_pdf
 CAT = ["business_type", "country", "channel"]
 NUM = [c for c in X.columns if c not in CAT]
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, stratify=y, random_state=7)
+X_train, X_test, y_train, y_test = X[~holdout], X[holdout], y[~holdout], y[holdout]
 
 candidates = {
     "v1_logistic_regression": LogisticRegression(max_iter=2000),
@@ -129,7 +133,7 @@ for run_name, clf in candidates.items():
 
 # MAGIC %md
 # MAGIC ## Step 3 · Pick the champion
-# MAGIC The better model by recall gets the **champion** alias, and the other one becomes **challenger**.
+# MAGIC The better model by recall (then AUC, if tied) gets the **champion** alias, and the other one becomes **challenger**.
 # MAGIC Anything that uses the model (endpoint, batch job) asks for `@champion`, so promoting a new model is just moving the alias. No new containers.
 
 # COMMAND ----------
@@ -139,7 +143,7 @@ from mlflow.tracking import MlflowClient
 client = MlflowClient(registry_uri="databricks-uc")
 
 versions = {v.run_id: v.version for v in client.search_model_versions(f"name='{fq(MODEL)}'")}
-ranked = sorted(runs.items(), key=lambda kv: kv[1]["recall_at_5pct_review"], reverse=True)
+ranked = sorted(runs.items(), key=lambda kv: (kv[1]["recall_at_5pct_review"], kv[1]["roc_auc"]), reverse=True)
 (champ_name, champ), (chall_name, chall) = ranked[0], ranked[1]
 
 for alias, (name, r) in [("champion", (champ_name, champ)), ("challenger", (chall_name, chall))]:

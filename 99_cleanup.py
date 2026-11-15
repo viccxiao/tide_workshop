@@ -37,6 +37,8 @@ def attempt(label, fn):
 
 
 attempt(f"endpoint {ENDPOINT}", lambda: w.serving_endpoints.delete(ENDPOINT))
+for j in w.jobs.list(name=f"kyx-deployment-job-{USER}"):
+    attempt(f"deployment job {j.job_id}", lambda j=j: w.jobs.delete(j.job_id))
 attempt("monitor", lambda: w.quality_monitors.delete(table_name=fq(PRED_LOG)))
 attempt("online table", lambda: fe.drop_online_table(fq(ONLINE_TABLE)) if hasattr(fe, "drop_online_table")
         else w.tables.delete(fq(ONLINE_TABLE)))
