@@ -11,7 +11,6 @@ import json, os, re
 
 ME = spark.sql("SELECT current_user()").first()[0]
 USER = re.sub(r"[^a-z0-9]", "_", ME.split("@")[0].lower())
-CONFIG_PATH = f"/Workspace/Users/{ME}/.kyx_workshop_config.json"
 
 
 def load_config():
@@ -36,9 +35,12 @@ def _param(name):
         return ""
 
 
+SCHEMA = _param("schema") or f"kyx_workshop_{USER}"   # jobs and bundles can pass catalog / schema as parameters
+# One settings file per schema, so bundle runs (e.g. kyx_mlops_dev) never overwrite your workshop settings
+CONFIG_PATH = (f"/Workspace/Users/{ME}/.kyx_workshop_config.json" if SCHEMA == f"kyx_workshop_{USER}"
+               else f"/Workspace/Users/{ME}/.kyx_config_{SCHEMA}.json")
 CFG = load_config()
-CATALOG = _param("catalog") or CFG.get("catalog")      # jobs can pass catalog / schema as parameters
-SCHEMA = _param("schema") or f"kyx_workshop_{USER}"
+CATALOG = _param("catalog") or CFG.get("catalog")
 
 # Raw data (created by 00_setup)
 CUSTOMERS = "customers"
@@ -75,7 +77,10 @@ def link(label, path):
 
 if CATALOG:
     spark.sql(f"USE CATALOG `{CATALOG}`")
-    spark.sql(f"USE SCHEMA `{SCHEMA}`")
-    print(f"Working in {CATALOG}.{SCHEMA} as {ME}")
+    if spark.catalog.databaseExists(f"{CATALOG}.{SCHEMA}"):
+        spark.sql(f"USE SCHEMA `{SCHEMA}`")
+        print(f"Working in {CATALOG}.{SCHEMA} as {ME}")
+    else:
+        print(f"Schema {CATALOG}.{SCHEMA} doesn't exist yet. 00_setup will create it.")
 else:
     print("No settings yet. Run 00_setup first.")

@@ -2,7 +2,8 @@
 
 resources:
   jobs:
-    # Build features and train candidate models. Scheduled weekly (paused in dev).
+    # Refresh data, build features and train candidate models. Scheduled weekly (paused in dev).
+    # In a real project, 'setup' would be your data pipeline. Here it regenerates the synthetic data.
     training:
       name: kyx-training
       schedule:
@@ -21,7 +22,13 @@ resources:
               - databricks-feature-engineering
               - mlflow==3.16.0
       tasks:
+        - task_key: setup
+          environment_key: ml
+          notebook_task:
+            notebook_path: ../../00_setup.py
         - task_key: features
+          depends_on:
+            - task_key: setup
           environment_key: ml
           notebook_task:
             notebook_path: ../../01_feature_engineering.py
