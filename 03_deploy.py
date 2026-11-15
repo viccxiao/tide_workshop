@@ -101,6 +101,8 @@ for i in range(90):
 # MAGIC %md
 # MAGIC ### Call it like your onboarding service would
 # MAGIC With the online store, the request only contains **customer IDs**. The endpoint looks up the rest.
+# MAGIC
+# MAGIC *If the endpoint has been idle it scales to zero to save cost, and the first call wakes it up. The cell retries until it answers.*
 
 # COMMAND ----------
 
@@ -117,7 +119,19 @@ else:  # fallback: send the features in the request
     records = (spark.table(FEATURE_TABLE).where(f"customer_id IN ({','.join(repr(c) for c in sample_ids)})")
                .drop("customer_id").toPandas().to_dict("records"))
 
-response = w.serving_endpoints.query(name=ENDPOINT, dataframe_records=records)
+def query_with_wakeup(records, tries=12):
+    """Scale to zero: after idle time the first request wakes the endpoint up, which can take a few minutes."""
+    for i in range(tries):
+        try:
+            return w.serving_endpoints.query(name=ENDPOINT, dataframe_records=records)
+        except Exception as e:
+            if i == tries - 1:
+                raise
+            print(f"Endpoint is waking up from scale to zero, retrying in 30s... ({str(e)[:80]})")
+            time.sleep(30)
+
+
+response = query_with_wakeup(records)
 result = pd.DataFrame({"customer_id": sample_ids, "risk_score": [round(float(p), 3) for p in response.predictions]})
 result["decision"] = ["send to review" if s >= threshold else "auto-approve" for s in result.risk_score]
 print("Request body:", {"dataframe_records": records})
