@@ -43,7 +43,15 @@ client = MlflowClient(registry_uri="databricks-uc")
 
 ONLINE_OK = load_config().get("online_ok", False)
 SERVED_MODEL = fq(MODEL) if ONLINE_OK else fq(MODEL + "_direct")
-champ = client.get_model_version_by_alias(SERVED_MODEL, "champion")
+try:
+    champ = client.get_model_version_by_alias(SERVED_MODEL, "champion")
+except Exception as e:
+    if not ONLINE_OK and "does not exist" in str(e).lower():
+        raise Exception("Your workspace has no online feature store, so this notebook serves the copy of the model that "
+                        f"takes features in the request ({SERVED_MODEL}). It hasn't been registered yet, usually because "
+                        "00_setup changed the online store setting after 02 ran. Fix: run 02_train_and_register again, "
+                        "then this notebook.") from None
+    raise
 print(f"Serving {SERVED_MODEL} version {champ.version} (champion)")
 
 served = ServedEntityInput(entity_name=SERVED_MODEL, entity_version=champ.version,
